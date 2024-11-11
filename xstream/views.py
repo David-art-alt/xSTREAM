@@ -42,7 +42,7 @@ class SplashScreen(QDialog):
         # Überschrift
         label_welcome = QLabel('Welcome to XSTREAM Datavisualisation')
         label_welcome.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        label_welcome.setFont(QFont("Arial", 16))  # Textgröße ändern
+        label_welcome.setFont(QFont("Arial", 18))  # Textgröße ändern
         layout.addWidget(label_welcome)
 
         # Versionsnummer
