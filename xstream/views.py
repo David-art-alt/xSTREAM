@@ -1,10 +1,12 @@
 import os
 import sys
 import math
+from datetime import datetime
+
 from PyQt6.QtCore import QTimer, Qt
 from PyQt6.QtGui import QFont, QPainter, QColor
 from PyQt6.QtWidgets import QApplication, QDialog, QVBoxLayout, QLabel, QMainWindow, QHBoxLayout, QLineEdit, \
-    QPushButton, QWidget
+    QPushButton, QWidget, QGroupBox, QSpacerItem, QSizePolicy
 from pyqtgraph import PlotWidget
 
 from xstream.data_scraping import DataFetcher
@@ -55,6 +57,7 @@ class SplashScreen(QDialog):
         label_welcome = QLabel('Welcome to XSTREAM Data Visualization')
         label_welcome.setAlignment(Qt.AlignmentFlag.AlignCenter)
         label_welcome.setFont(QFont("Arial", 16))
+        label_welcome.setStyleSheet("color: darkgrey")
         layout.addWidget(label_welcome)
 
         # Versionsnummer und Autor
@@ -65,6 +68,7 @@ class SplashScreen(QDialog):
         for label in [label_version, label_author, label_date]:
             label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             label.setFont(QFont("Arial", 12))
+            label.setStyleSheet("color: white")
             layout.addWidget(label)
 
     def paintEvent(self, event):
@@ -127,17 +131,11 @@ class MainWindow(QMainWindow):
         url_layout.addWidget(self.path_input)
         main_layout.addLayout(url_layout)
 
-        # Datenlabels
-        self.data_labels = {gas: QLabel(f"{gas}: ---") for gas in ["CO2", "CO", "CH4", "H2", "O2"]}
-        for label in self.data_labels.values():
-            label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            main_layout.addWidget(label)
+        # GroupBox für Gasvolumenprozente
+        main_layout.addWidget(self.createGasVolumePercGroupbox())
 
         # Plot für Echtzeitdaten
-        self.graph_widget = PlotWidget()
-        main_layout.addWidget(self.graph_widget)
-        self.curves = {gas: self.graph_widget.plot(pen=color) for gas, color in
-                       zip(self.data_labels.keys(), ['r', 'g', 'b', 'y', 'm'])}
+        main_layout.addWidget(self.createPlot())
 
         # Start-Button
         self.start_button = QPushButton("Start")
@@ -148,6 +146,85 @@ class MainWindow(QMainWindow):
         container = QWidget()
         container.setLayout(main_layout)
         self.setCentralWidget(container)
+
+    def createGasVolumePercGroupbox(self):
+        # Erstellen der GroupBox für die Gasvolumenprozente
+        groupbox = QGroupBox("Gasvolumenprozente")
+
+        # Horizontales Layout für die Gasanzeigen in einer Zeile
+        data_layout = QHBoxLayout()
+        data_layout.setSpacing(5)  # Abstand zwischen den Feldern
+
+        # Datenfelder für die Gasanzeige
+        self.data_labels = {}
+        fields = [
+            ("CO₂:", "CO2", "Vol%", 60),
+            ("CO:", "CO", "Vol%", 60),
+            ("CH₄:", "CH4", "Vol%", 60),
+            ("H₂:", "H2", "Vol%", 60),
+            ("O₂:", "O2", "Vol%", 60)
+        ]
+
+        # Erstellen der Labels und QLineEdits aus den Feldern
+        for label_text, gas, unit, width in fields:
+            # Label für die chemische Formel
+            label = QLabel(label_text)
+            #label.setAlignment(Qt.AlignmentFlag.AlignRight)
+            label.setStyleSheet("font-weight: bold; color: #333;")
+
+            # QLineEdit für den Wert des Gases
+            line_edit = QLineEdit("---")
+            line_edit.setReadOnly(True)
+            line_edit.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            line_edit.setFixedWidth(width)
+            line_edit.setStyleSheet("background-color: #f0f0f0; color: #333; border: 1px solid #ccc;")
+
+            # Speichern des QLineEdit im Dictionary für spätere Updates
+            self.data_labels[gas] = line_edit
+
+            # Label für die Einheit (z. B. "Vol%")
+            unit_label = QLabel(unit)
+            #unit_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
+            # Fügen Sie Abstand (Leerzeichen) zwischen den Widgets hinzu
+            spacer_item = QSpacerItem(40, 30, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+
+            # Füge das Label, das QLineEdit und das Einheits-Label zum Layout hinzu
+            data_layout.addWidget(label)
+            data_layout.addWidget(line_edit)
+            data_layout.addWidget(unit_label)
+            data_layout.addItem(spacer_item)
+
+        # Setze das Layout für die GroupBox
+        data_layout.addStretch(1)
+        #groupbox.setFixedHeight(120)
+        groupbox.setLayout(data_layout)
+        return groupbox
+
+    def createPlot(self):
+        # Initialisiert das PlotWidget für Echtzeitdaten
+        self.graph_widget = PlotWidget()
+        self.graph_widget.setBackground('w')
+        self.graph_widget.showGrid(x=False, y=False, alpha=0.3)
+        self.graph_widget.setLabel('left', 'Gas Vol%')
+        self.graph_widget.setLabel('bottom', 'time')
+
+        # Deaktivieren der horizontalen Verschiebung für die x-Achse
+        self.graph_widget.getViewBox().setMouseEnabled(x=False)
+
+        # Setzt die y-Achse auf einen Bereich von 0 bis 100 als Limit
+        self.graph_widget.setLimits(yMin=0, yMax=100)
+
+        # Setze den Anzeigebereich der y-Achse auf 0 bis 110, um zusätzlichen Raum oberhalb von 100 zu schaffen
+        self.graph_widget.getViewBox().setRange(yRange=(0, 110), padding=0)
+
+        self.graph_widget.setTitle(
+            '<span style="color: darkgrey; font-size: 20pt">Gas Vol% vs Time</span>'
+        )
+        # Erstellt die Kurven für jedes Gas mit unterschiedlichen Farben
+        colors = ['r', 'g', 'b', 'y', 'm']
+        self.curves = {gas: self.graph_widget.plot(pen=color) for gas, color in zip(self.data_labels.keys(), colors)}
+
+        return self.graph_widget
 
     def start_acquisition(self):
         # Aktualisiere URL und Pfad
@@ -161,9 +238,30 @@ class MainWindow(QMainWindow):
         self.timer.timeout.connect(self.data_fetcher.fetch_data)
         self.timer.start(1000)
 
-    def update_display_and_plot(self, data):
-        # Aktualisiert digitale Anzeige und Plot-Daten
-        for gas, value in data.items():
-            self.data_labels[gas].setText(f"{gas}: {value}")
-            self.curves[gas].setData(self.data_fetcher.graph_data[gas])
+    import datetime
 
+    def update_display_and_plot(self, data):
+        # Erfasse den aktuellen Zeitstempel für die x-Achse
+        current_time = datetime.datetime.now()
+
+        # Füge den Zeitstempel zu den gespeicherten Daten hinzu
+        if "time" not in self.data_fetcher.graph_data:
+            self.data_fetcher.graph_data["time"] = []  # Initialisiere Zeitstempelliste, falls nicht vorhanden
+        self.data_fetcher.graph_data["time"].append(current_time.timestamp())
+
+        # Aktualisiert die digitalen Anzeigen und den Plot
+        for gas, value in data.items():
+            # Setzt den neuen Wert ins QLineEdit
+            if gas in self.data_labels:
+                self.data_labels[gas].setText(str(value))
+
+            # Speichere den neuen Wert in der entsprechenden Datenliste
+            self.data_fetcher.graph_data[gas].append(value)
+
+            # Aktualisiert die Kurve im Plot für das entsprechende Gas
+            if gas in self.curves:
+                # Verwende Zeitstempel als x-Werte und Gaswerte als y-Werte im Plot
+                self.curves[gas].setData(
+                    x=self.data_fetcher.graph_data["time"],
+                    y=self.data_fetcher.graph_data[gas]
+                )
