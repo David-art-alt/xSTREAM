@@ -1,12 +1,11 @@
 import sys
 from PyQt6.QtWidgets import QApplication, QDialog, QMessageBox
-from PyQt6.QtCore import QTimer
 from xstream.views import SplashScreen, ConnectionDialog, MainWindow
 
 
 def main():
     app = QApplication(sys.argv)
-
+    app.setStyle("Fusion")
     while True:
         connection_dialog = ConnectionDialog()
         if connection_dialog.exec() == QDialog.DialogCode.Accepted:
@@ -30,4 +29,4 @@ def main():
 def close_splash_and_show_main(splash_screen):
     """Schließt den Splash Screen und zeigt das Hauptfenster an."""
     splash_screen.close()  # Schließt den Splash Screen
-    splash_screen.main_window.show()  # Zeige das Hauptfenster an, das als Attribut gespeichert wurde
+    splash_screen.main_window.show()  # Zeige das Hauptfenster an, das als Attribut gespeichert wurdefenster an, das als Attribut gespeichert wurde
