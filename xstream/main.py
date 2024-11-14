@@ -1,28 +1,31 @@
 import sys
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtWidgets import QApplication, QDialog, QMessageBox
 from PyQt6.QtCore import QTimer
-import xstream.views
+from xstream.views import SplashScreen, ConnectionDialog, MainWindow
+
 
 def main():
-    """Project main function"""
-    # Erstelle die Anwendung
     app = QApplication(sys.argv)
-    app.setStyle('Fusion')
 
-    # Erstelle und zeige den Splash Screen
-    splash_screen = xstream.views.SplashScreen()
+    while True:
+        connection_dialog = ConnectionDialog()
+        if connection_dialog.exec() == QDialog.DialogCode.Accepted:
+            login_url = connection_dialog.get_login_url()
+            path = connection_dialog.get_webdriver_path()
 
-    # Setze das Hauptfenster als Attribut des Splash Screens
-    splash_screen.main_window = xstream.views.MainWindow()
+            splash = SplashScreen()
+            splash.show_screen()  # Display the splash screen
 
-    # Timer, um den Splash Screen nach 3 Sekunden zu schließen und das Hauptfenster zu zeigen
-    QTimer.singleShot(3000, lambda: close_splash_and_show_main(splash_screen))
-
-    # Splash Screen anzeigen
-    splash_screen.show()
-
-    # Start der Event-Schleife
-    sys.exit(app.exec())
+            window = MainWindow(path, login_url)
+            if window.start_webdriver():
+                splash.hide_screen()  # Hide after successful connection
+                window.show()
+                sys.exit(app.exec())
+            else:
+                splash.hide_screen()
+                QMessageBox.warning(None, "Connection Error", "Failed to establish connection. Please try again.")
+        else:
+            break  # Exit if the user cancels
 
 def close_splash_and_show_main(splash_screen):
     """Schließt den Splash Screen und zeigt das Hauptfenster an."""

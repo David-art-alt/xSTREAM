@@ -1,15 +1,20 @@
 import os
 import sys
+import collections
+import time
 import math
-from datetime import datetime
-
 from PyQt6.QtCore import QTimer, Qt
-from PyQt6.QtGui import QFont, QPainter, QColor
-from PyQt6.QtWidgets import QApplication, QDialog, QVBoxLayout, QLabel, QMainWindow, QHBoxLayout, QLineEdit, \
-    QPushButton, QWidget, QGroupBox, QSpacerItem, QSizePolicy
-from pyqtgraph import PlotWidget
+from PyQt6.QtGui import QPainter, QColor, QFont
+from PyQt6.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QHBoxLayout, QWidget, QPushButton, QGroupBox, \
+    QLabel, QLineEdit, QSizePolicy, QSpacerItem, QDialog, QMessageBox
+import pyqtgraph as pg
+from selenium import webdriver
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import WebDriverException
 
-from xstream.data_scraping import DataFetcher
 
 def resource_path(relative_path):
     """ Get absolute path to resource, works for dev and for PyInstaller """
@@ -25,23 +30,16 @@ class SplashScreen(QDialog):
         self.setWindowTitle('Splash Screen')
         self.setFixedSize(400, 300)
         self.setWindowFlag(Qt.WindowType.FramelessWindowHint)
-        self.setStyleSheet('QDialog{background-color: #0000FF; color: white;}')  # Blauer Hintergrund und weißer Text
-
-        self.counter = 0
-        self.n = 100  # Anzahl der Ladeintervalle für Timer-Loop
-        self.rotation_angle = 0  # Initialer Rotationswinkel für Kreisbewegung
-
+        self.setStyleSheet('QDialog{background-color: #0000FF; color: white;}')
+        self.rotation_angle = 0
         self.initUI()
-
         self.timer = QTimer()
         self.timer.timeout.connect(self.loading)
-        self.timer.start(50)
 
     def initUI(self):
         layout = QVBoxLayout()
         self.setLayout(layout)
 
-        # Haupttitel "X STREAM" mit mehrschichtigem Rand für "X"
         label_title = QLabel(
             '<span style="font-style:italic; font-size:36px; color: white;'
             ' text-shadow: -1px -1px 0px white, 1px -1px 0px white, -1px 1px 0px white, 1px 1px 0px white,'
@@ -52,216 +50,252 @@ class SplashScreen(QDialog):
         label_title.setStyleSheet("color: white; border: 3px solid blue; padding: 10px;")
         layout.addWidget(label_title)
 
-        # Begrüßungstext
         layout.addStretch(1)
-        label_welcome = QLabel('Welcome to XSTREAM Data Visualization')
+        label_welcome = QLabel('Connecting to XSTREAM Data Visualization...')
         label_welcome.setAlignment(Qt.AlignmentFlag.AlignCenter)
         label_welcome.setFont(QFont("Arial", 16))
         label_welcome.setStyleSheet("color: darkgrey")
         layout.addWidget(label_welcome)
 
-        # Versionsnummer und Autor
         label_version = QLabel('Version 1.0')
         label_author = QLabel('by David Gansterer-Heider')
         label_date = QLabel('20.11.2023 IVET')
-
         for label in [label_version, label_author, label_date]:
             label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             label.setFont(QFont("Arial", 12))
             label.setStyleSheet("color: white")
             layout.addWidget(label)
 
+    def show_screen(self):
+        """Show the splash screen and start the loading animation."""
+        self.show()
+        self.start_loading_animation()
+
+    def start_loading_animation(self):
+        """Start the rotation animation."""
+        self.timer.start(50)  # Speed of rotation
+
+    def loading(self):
+        self.rotation_angle += 5
+        self.update()
+
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-
-        # Kleinere Kreiseinstellungen
-        radius = 5  # Reduziere den Radius des Kreises
+        radius = 5
         circle_count = 8
-        center_x, center_y = 200, 130  # Zentrum für das Ladesymbol
-        distance_from_center = 30  # Abstand zum Mittelpunkt verringern
-
-        # Zeichne die Kreise im rotierenden Winkel
+        center_x, center_y = 200, 130
+        distance_from_center = 30
         for i in range(circle_count):
             angle_rad = math.radians(self.rotation_angle + i * (360 / circle_count))
             x = int(center_x + distance_from_center * math.cos(angle_rad) - radius)
             y = int(center_y + distance_from_center * math.sin(angle_rad) - radius)
-            painter.setBrush(QColor(255, 255, 255))  # Weißer Kreis
+            painter.setBrush(QColor(255, 255, 255))
             painter.drawEllipse(x, y, int(radius * 2), int(radius * 2))
+        painter.end()
 
-        painter.end()  # Wichtig: Beende den QPainter korrekt
+    def hide_screen(self):
+        """Stop the animation and hide the splash screen."""
+        self.timer.stop()
+        self.hide()
+class ConnectionDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Connection Settings")
+        self.setFixedSize(400, 200)
 
-    def loading(self):
-        if self.counter >= self.n:
-            self.timer.stop()
-            self.close()
-        else:
-            # Erhöhe den Rotationswinkel für die Animation
-            self.rotation_angle += 5  # Erhöht den Winkel für jede Drehung
-            self.update()  # Bildschirm neu zeichnen
+        # Eingabe für Login-URL
+        self.login_label = QLabel("Login URL:", self)
+        self.login_input = QLineEdit("http://192.168.1.88/login.htm", self)
 
-        self.counter += 1
+        # Eingabe für WebDriver-Pfad
+        self.path_label = QLabel("Webdriver Path:", self)
+        self.path_input = QLineEdit("C:\\webdriver\\chromedriver-win64\\chromedriver.exe", self)
 
+        # Buttons für Verbindung und Abbruch
+        self.connect_button = QPushButton("Connect", self)
+        self.connect_button.clicked.connect(self.accept)
+        self.cancel_button = QPushButton("Cancel", self)
+        self.cancel_button.clicked.connect(self.reject)
+
+        # Layout für das Verbindungsfenster
+        layout = QVBoxLayout()
+        layout.addWidget(self.login_label)
+        layout.addWidget(self.login_input)
+        layout.addWidget(self.path_label)
+        layout.addWidget(self.path_input)
+
+        button_layout = QHBoxLayout()
+        button_layout.addWidget(self.connect_button)
+        button_layout.addWidget(self.cancel_button)
+
+        layout.addLayout(button_layout)
+        self.setLayout(layout)
+
+    def get_login_url(self):
+        return self.login_input.text()
+
+    def get_webdriver_path(self):
+        return self.path_input.text()
 
 class MainWindow(QMainWindow):
-    def __init__(self):
+    def __init__(self, path, login_url):
         super().__init__()
-
-        # Initiale Einstellungen
-        self.data_fetcher = DataFetcher()
-        self.data_fetcher.data_received.connect(self.update_display_and_plot)
+        self.path = path
+        self.login_url = login_url
+        self.driver = None
         self.timer = QTimer()
-
+        self.timer.timeout.connect(self.fetch_data)
+        self.initialize_plot()
         self.initUI()
 
+    def start_webdriver(self):
+        try:
+            service = Service(executable_path=self.path)
+            self.driver = webdriver.Chrome(service=service)
+
+            # Öffnen der Login-Seite
+            self.driver.get(self.login_url)
+            QMessageBox.information(self, "Login", "Please log in on the webpage. Then press OK.")
+
+            # Automatisch zur Hauptseite wechseln
+            main_url = self.driver.current_url
+            self.driver.get(main_url)
+            self.driver.switch_to.frame("unten")
+            return True
+
+        except WebDriverException:
+            self.show_error_message("Connection failed. Please check WebDriver path.")
+            return False
+
+    def show_error_message(self, message):
+        msg = QMessageBox()
+        msg.setIcon(QMessageBox.Icon.Warning)
+        msg.setWindowTitle("Connection Error")
+        msg.setText(message)
+        msg.setStandardButtons(QMessageBox.StandardButton.Ok)
+        msg.exec()
+
     def initUI(self):
-        self.setWindowTitle("XSTREAM Data Visualization")
-        self.setGeometry(100, 100, 800, 600)
-
-        # Layouts und Widgets
+        self.setWindowTitle("Gas Monitoring")
         main_layout = QVBoxLayout()
+        main_layout.addWidget(self.create_gas_volume_perc_groupbox())
+        main_layout.addWidget(self.plot_widget)
 
-        # Eingabefelder für URL und Pfad
-        url_layout = QHBoxLayout()
-        self.url_input = QLineEdit(self.data_fetcher.website)
-        self.path_input = QLineEdit(self.data_fetcher.path)
-        url_layout.addWidget(QLabel("Website URL:"))
-        url_layout.addWidget(self.url_input)
-        url_layout.addWidget(QLabel("Webdriver Path:"))
-        url_layout.addWidget(self.path_input)
-        main_layout.addLayout(url_layout)
-
-        # GroupBox für Gasvolumenprozente
-        main_layout.addWidget(self.createGasVolumePercGroupbox())
-
-        # Plot für Echtzeitdaten
-        main_layout.addWidget(self.createPlot())
-
-        # Start-Button
+        button_layout = QHBoxLayout()
         self.start_button = QPushButton("Start")
         self.start_button.clicked.connect(self.start_acquisition)
-        main_layout.addWidget(self.start_button, alignment=Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignBottom)
-
-        # Setzt das Layout im Hauptfenster
+        button_layout.addStretch(1)
+        button_layout.addWidget(self.start_button, alignment=Qt.AlignmentFlag.AlignRight)
+        # Hier wird der Button zum Hauptlayout hinzugefügt
+        main_layout.addLayout(button_layout)
         container = QWidget()
         container.setLayout(main_layout)
         self.setCentralWidget(container)
 
-    def createGasVolumePercGroupbox(self):
-        # Erstellen der GroupBox für die Gasvolumenprozente
-        groupbox = QGroupBox("Gasvolumenprozente")
-
-        # Horizontales Layout für die Gasanzeigen in einer Zeile
+    def create_gas_volume_perc_groupbox(self):
+        groupbox = QGroupBox("Gas Volume Percentage")
         data_layout = QHBoxLayout()
-        data_layout.setSpacing(5)  # Abstand zwischen den Feldern
-
-        # Datenfelder für die Gasanzeige
+        data_layout.setSpacing(5)
         self.data_labels = {}
-        fields = [
-            ("CO₂:", "CO2", "Vol%", 60),
-            ("CO:", "CO", "Vol%", 60),
-            ("CH₄:", "CH4", "Vol%", 60),
-            ("H₂:", "H2", "Vol%", 60),
-            ("O₂:", "O2", "Vol%", 60)
-        ]
 
-        # Erstellen der Labels und QLineEdits aus den Feldern
-        for label_text, gas, unit, width in fields:
-            # Label für die chemische Formel
+        # Farben entsprechend den Normfarben der Gase
+        colors = {
+            "CO2": '#808080',  # Grau für CO₂
+            "CO": '#000000',  # Schwarz für CO
+            "CH4": '#00FF00',  # Hellgrün für CH₄
+            "H2": '#FF0000',  # Rot für H₂
+            "O2": '#0000FF',  # Blau für O₂
+        }
+
+        # Label und Eingabefeld für jedes Gas
+        fields = [("CO₂:", "CO2"), ("CO:", "CO"), ("CH₄:", "CH4"), ("H₂:", "H2"), ("O₂:", "O2")]
+        for label_text, gas in fields:
             label = QLabel(label_text)
-            #label.setAlignment(Qt.AlignmentFlag.AlignRight)
-            label.setStyleSheet("font-weight: bold; color: #333;")
+            label.setStyleSheet(f"color: {colors[gas]}; font-weight: bold;")  # Setzt die Label-Farbe
 
-            # QLineEdit für den Wert des Gases
             line_edit = QLineEdit("---")
             line_edit.setReadOnly(True)
             line_edit.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            line_edit.setFixedWidth(width)
-            line_edit.setStyleSheet("background-color: #f0f0f0; color: #333; border: 1px solid #ccc;")
+            line_edit.setFixedWidth(60)
 
-            # Speichern des QLineEdit im Dictionary für spätere Updates
+            # Setze die Hintergrundfarbe für jedes Eingabefeld basierend auf dem Gas
+            line_edit.setStyleSheet(f"color: {colors[gas]};")
+
             self.data_labels[gas] = line_edit
-
-            # Label für die Einheit (z. B. "Vol%")
-            unit_label = QLabel(unit)
-            #unit_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
-            # Fügen Sie Abstand (Leerzeichen) zwischen den Widgets hinzu
-            spacer_item = QSpacerItem(40, 30, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-
-            # Füge das Label, das QLineEdit und das Einheits-Label zum Layout hinzu
             data_layout.addWidget(label)
             data_layout.addWidget(line_edit)
-            data_layout.addWidget(unit_label)
-            data_layout.addItem(spacer_item)
 
-        # Setze das Layout für die GroupBox
+            spacer_item = QSpacerItem(40, 30, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+            data_layout.addItem(spacer_item)
         data_layout.addStretch(1)
-        #groupbox.setFixedHeight(120)
         groupbox.setLayout(data_layout)
         return groupbox
 
-    def createPlot(self):
-        # Initialisiert das PlotWidget für Echtzeitdaten
-        self.graph_widget = PlotWidget()
-        self.graph_widget.setBackground('w')
-        self.graph_widget.showGrid(x=False, y=False, alpha=0.3)
-        self.graph_widget.setLabel('left', 'Gas Vol%')
-        self.graph_widget.setLabel('bottom', 'time')
+    def initialize_plot(self):
+        self.plot_widget = pg.PlotWidget()
+        self.plot_widget.setBackground('w')
+        self.plot_widget.showGrid(x=True, y=True, alpha=0.3)
+        self.plot_widget.setLabel('left', 'Gas Vol%')
+        self.plot_widget.setLabel('bottom', 'Time')
+        self.plot_widget.getViewBox().setMouseEnabled(x=False)
 
-        # Deaktivieren der horizontalen Verschiebung für die x-Achse
-        self.graph_widget.getViewBox().setMouseEnabled(x=False)
+        self.plot_widget.setLimits(yMin=0, yMax=100)
+        self.max_data_points = 1000
 
-        # Setzt die y-Achse auf einen Bereich von 0 bis 100 als Limit
-        self.graph_widget.setLimits(yMin=0, yMax=100)
+        self.time_data = collections.deque(maxlen=self.max_data_points)
+        self.gas_data = {gas: collections.deque(maxlen=self.max_data_points) for gas in
+                         ["CO2", "CO", "CH4", "H2", "O2"]}
 
-        # Setze den Anzeigebereich der y-Achse auf 0 bis 110, um zusätzlichen Raum oberhalb von 100 zu schaffen
-        self.graph_widget.getViewBox().setRange(yRange=(0, 110), padding=0)
+        colors = {
+            "CO2": '#808080',  # Grau
+            "CO": '#000000',  # Schwarz
+            "CH4": '#00FF00',  # Hellgrün
+            "H2": '#FF0000',  # Rot
+            "O2": '#0000FF',  # Blau
+        }
 
-        self.graph_widget.setTitle(
-            '<span style="color: darkgrey; font-size: 20pt">Gas Vol% vs Time</span>'
-        )
-        # Erstellt die Kurven für jedes Gas mit unterschiedlichen Farben
-        colors = ['r', 'g', 'b', 'y', 'm']
-        self.curves = {gas: self.graph_widget.plot(pen=color) for gas, color in zip(self.data_labels.keys(), colors)}
+        self.curves = {gas: self.plot_widget.plot(pen=color) for gas, color in colors.items()}
 
-        return self.graph_widget
+        self.plot_widget.addLegend()
+        self.plot_widget.setAxisItems({'bottom': pg.DateAxisItem()})
+
+    def fetch_data(self):
+        current_time = time.time()
+        self.time_data.append(current_time)
+
+        try:
+            element = WebDriverWait(self.driver, 10).until(
+                EC.presence_of_element_located((By.XPATH, '//td[@id="btmline"]')))
+            raw_text = element.text.strip()
+
+            gas_values = {
+                "CO2": float(raw_text.split("Ch1/R4:")[1].split("Vol%")[0].strip()),
+                "CO": float(raw_text.split("Ch2/R4:")[1].split("Vol%")[0].strip()),
+                "CH4": float(raw_text.split("Ch3/R4:")[1].split("Vol%")[0].strip()),
+                "H2": float(raw_text.split("Ch4/R4:")[1].split("Vol%")[0].strip()),
+                "O2": float(raw_text.split("Ch5/R4:")[1].split("Vol%")[0].strip()),
+            }
+            for gas, value in gas_values.items():
+                self.gas_data[gas].append(value)
+                self.data_labels[gas].setText(f"{value:.2f}")
+
+            self.update_plot()
+        except WebDriverException:
+            self.timer.stop()
+            self.show_error_message("Connection lost. Webdriver is closing.")
+            self.driver.quit()
+
+    def update_plot(self):
+        time_data = list(self.time_data)
+        for gas, data in self.gas_data.items():
+            self.curves[gas].setData(x=time_data, y=list(data))
 
     def start_acquisition(self):
-        # Aktualisiere URL und Pfad
-        self.data_fetcher.website = self.url_input.text()
-        self.data_fetcher.path = self.path_input.text()
+        if not self.timer.isActive():
+            self.timer.start(1000)
+            self.start_button.setText("Stop")
+        else:
+            self.timer.stop()
+            self.start_button.setText("Start")
 
-        # Starte den Webdriver über Selenium
-        self.data_fetcher.start_webdriver()
-
-        # Startet den Timer für Datenabfragen
-        self.timer.timeout.connect(self.data_fetcher.fetch_data)
-        self.timer.start(1000)
-
-    import datetime
-
-    def update_display_and_plot(self, data):
-        # Erfasse den aktuellen Zeitstempel für die x-Achse
-        current_time = datetime.datetime.now()
-
-        # Füge den Zeitstempel zu den gespeicherten Daten hinzu
-        if "time" not in self.data_fetcher.graph_data:
-            self.data_fetcher.graph_data["time"] = []  # Initialisiere Zeitstempelliste, falls nicht vorhanden
-        self.data_fetcher.graph_data["time"].append(current_time.timestamp())
-
-        # Aktualisiert die digitalen Anzeigen und den Plot
-        for gas, value in data.items():
-            # Setzt den neuen Wert ins QLineEdit
-            if gas in self.data_labels:
-                self.data_labels[gas].setText(str(value))
-
-            # Speichere den neuen Wert in der entsprechenden Datenliste
-            self.data_fetcher.graph_data[gas].append(value)
-
-            # Aktualisiert die Kurve im Plot für das entsprechende Gas
-            if gas in self.curves:
-                # Verwende Zeitstempel als x-Werte und Gaswerte als y-Werte im Plot
-                self.curves[gas].setData(
-                    x=self.data_fetcher.graph_data["time"],
-                    y=self.data_fetcher.graph_data[gas]
-                )
